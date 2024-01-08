@@ -1,0 +1,115 @@
+options(scipen = 999)
+
+library(tidyverse)
+library(lubridate)
+library(jsonlite)
+library(timetk)
+library(TTR)
+
+source("scripts/facts_dims.R")
+
+datos_fics_fcp <- get_fics() %>% 
+    group_by(cod,
+             tipo_participacion) %>% 
+    pad_by_time(fecha_corte,
+                "day") %>% 
+    fill(valor_fondo_cierre_dia_t) %>%
+    mutate(rendimientos_abonados = if_else(is.na(rendimientos_abonados),
+                                           0,
+                                           rendimientos_abonados),
+           precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
+                                           valor_fondo_cierre_dia_t,
+                                           precierre_fondo_dia_t)) %>%
+    ungroup() 
+
+datos_preb <- datos_fics_fcp
+
+max_date <- max(datos_preb$fecha_corte)
+
+max_date_minus_4_weeks <- max_date - weeks(4)
+
+
+datos_hist <- datos_preb %>% 
+    filter(fecha_corte < max_date_minus_4_weeks)
+
+
+datos_mes <- datos_preb %>% 
+    filter(fecha_corte >= max_date_minus_4_weeks) %>% 
+    group_by(cod,
+             tipo_participacion) %>% 
+    pad_by_time(fecha_corte,
+                "day", 
+                .end_date = max_date) %>% 
+    fill(valor_fondo_cierre_dia_t) %>%
+    mutate(rendimientos_abonados = if_else(is.na(rendimientos_abonados),
+                                           0,
+                                           rendimientos_abonados),
+           precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
+                                           valor_fondo_cierre_dia_t,
+                                           precierre_fondo_dia_t)) %>%
+    ungroup()
+
+
+datos_base <- bind_rows(datos_hist,datos_mes) %>% 
+    # mutate(rendimientos_abonados = round(rendimientos_abonados, 1),
+    #        precierre_fondo_dia_t = round(precierre_fondo_dia_t, 1),
+    #        crecimiento_dia = precierre_fondo_dia_t/(precierre_fondo_dia_t-rendimientos_abonados),
+    #        crecimiento_dia = if_else(is.infinite(crecimiento_dia)|is.nan(crecimiento_dia), 
+    #                                  1,
+    #                                  crecimiento_dia)) %>% 
+    group_by(cod, tipo_participacion) %>% 
+    mutate(n_fondo = n()) %>% 
+    ungroup() %>% 
+    group_by(cod) %>% 
+    mutate(n_fondo = max(n_fondo)) %>% 
+    ungroup() %>% 
+    filter(n_fondo > 365) %>%  # Fondos con un año o más de creados
+    select(-n_fondo)
+    
+fondos_activos <- datos_base %>% 
+    group_by(cod) %>% 
+    mutate(max_fecha = max(fecha_corte)) %>% 
+    ungroup() %>% 
+    filter(max_fecha == max(fecha_corte)) %>% 
+    pull(cod) %>% 
+    unique()
+ 
+datos_base_activos <- datos_base %>% 
+    filter(cod %in% fondos_activos)
+
+datos_base_parti_basica <- datos_base_activos %>% 
+    group_by(cod, tipo_participacion) %>% 
+    mutate(max_fecha = max(fecha_corte),
+           n = n()) %>% 
+    ungroup() %>% 
+    filter(max_fecha == max(fecha_corte)) %>% 
+    filter(n>30) %>% 
+    group_by(cod, tipo_participacion) %>% 
+    arrange(cod,fecha_corte) %>% 
+    mutate(rendimientos_abonados = round(rendimientos_abonados, 1),
+           precierre_fondo_dia_t = round(precierre_fondo_dia_t, 1),
+           crecimiento_dia = precierre_fondo_dia_t/(precierre_fondo_dia_t-rendimientos_abonados),
+           crecimiento_dia = if_else(is.infinite(crecimiento_dia)|is.nan(crecimiento_dia),
+                                     1,
+                                     crecimiento_dia)) %>%
+    mutate(rent_30 = slidify_vec(
+        .x      = crecimiento_dia,
+        .period = 30,
+        .f      = ~ (prod(.)^(12))-1,
+        .align  = "rigth")) %>% 
+    ungroup()
+    
+fondos_base <- datos_base_parti_basica %>% 
+    drop_na() %>% 
+    filter(fecha_corte == max(fecha_corte)) %>% 
+    group_by(cod) %>% 
+    filter(rent_30 == min(rent_30)) %>% 
+    filter(numero_inversionistas >0) %>% 
+    filter(valor_fondo_cierre_dia_t == max(valor_fondo_cierre_dia_t)) %>% 
+    ungroup() %>% 
+    select(cod, tipo_participacion) %>% 
+    distinct(cod, .keep_all = TRUE)
+
+datos_base_parti_basica_2 <- datos_base_parti_basica %>% 
+    semi_join(fondos_base, by = c("cod", "tipo_participacion"))
+
