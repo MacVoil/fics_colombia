@@ -14,9 +14,10 @@ datos_fics_fcp <- get_fics() %>%
     pad_by_time(fecha_corte,
                 "day") %>% 
     fill(valor_fondo_cierre_dia_t) %>%
-    mutate(rendimientos_abonados = if_else(is.na(rendimientos_abonados),
-                                           0,
-                                           rendimientos_abonados),
+    fill(numero_unidades_fondo_cierre) %>% 
+    fill(numero_inversionistas) %>% 
+    mutate(rendimientos_abonados = replace_na(rendimientos_abonados,0),
+           rm = replace_na(rm,0),
            precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
                                            valor_fondo_cierre_dia_t,
                                            precierre_fondo_dia_t)) %>%
@@ -41,22 +42,17 @@ datos_mes <- datos_preb %>%
                 "day", 
                 .end_date = max_date) %>% 
     fill(valor_fondo_cierre_dia_t) %>%
-    mutate(rendimientos_abonados = if_else(is.na(rendimientos_abonados),
-                                           0,
-                                           rendimientos_abonados),
+    fill(numero_unidades_fondo_cierre) %>% 
+    fill(numero_inversionistas) %>% 
+    mutate(rendimientos_abonados = replace_na(rendimientos_abonados,0),
+           rm = replace_na(rm,0),
            precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
                                            valor_fondo_cierre_dia_t,
                                            precierre_fondo_dia_t)) %>%
-    ungroup()
+    ungroup() 
 
-
+#######################
 datos_base <- bind_rows(datos_hist,datos_mes) %>% 
-    # mutate(rendimientos_abonados = round(rendimientos_abonados, 1),
-    #        precierre_fondo_dia_t = round(precierre_fondo_dia_t, 1),
-    #        crecimiento_dia = precierre_fondo_dia_t/(precierre_fondo_dia_t-rendimientos_abonados),
-    #        crecimiento_dia = if_else(is.infinite(crecimiento_dia)|is.nan(crecimiento_dia), 
-    #                                  1,
-    #                                  crecimiento_dia)) %>% 
     group_by(cod, tipo_participacion) %>% 
     mutate(n_fondo = n()) %>% 
     ungroup() %>% 
@@ -83,7 +79,7 @@ datos_base_parti_basica <- datos_base_activos %>%
            n = n()) %>% 
     ungroup() %>% 
     filter(max_fecha == max(fecha_corte)) %>% 
-    filter(n>30) %>% 
+    filter(n>365) %>% 
     group_by(cod, tipo_participacion) %>% 
     arrange(cod,fecha_corte) %>% 
     mutate(rendimientos_abonados = round(rendimientos_abonados, 1),
@@ -95,7 +91,7 @@ datos_base_parti_basica <- datos_base_activos %>%
     mutate(rent_30 = slidify_vec(
         .x      = crecimiento_dia,
         .period = 30,
-        .f      = ~ (prod(.)^(12))-1,
+        .f      = ~ (prod(.)^(365/30))-1,
         .align  = "rigth")) %>% 
     ungroup()
     
@@ -111,5 +107,135 @@ fondos_base <- datos_base_parti_basica %>%
     distinct(cod, .keep_all = TRUE)
 
 datos_base_parti_basica_2 <- datos_base_parti_basica %>% 
-    semi_join(fondos_base, by = c("cod", "tipo_participacion"))
+    semi_join(fondos_base, by = c("cod", "tipo_participacion")) %>% 
+    group_by(cod, tipo_participacion) %>% 
+    mutate(
+        rent_90 = slidify_vec(
+        .x      = crecimiento_dia,
+        .period = 90,
+        .f      = ~ (prod(.)^(365/90))-1,
+        .align  = "rigth"),
+        rent_180 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 180,
+            .f      = ~ (prod(.)^(365/180))-1,
+            .align  = "rigth"),
+        rent_365 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 365,
+            .f      = ~ (prod(.))-1,
+            .align  = "rigth"),
+        vol_30 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 30,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_90 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 90,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_180 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 180,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_365 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 365,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        EMA30 = EMA((crecimiento_dia-1), n=30),
+        EMA90 = EMA((crecimiento_dia-1), n=90),
+        EMA180 = EMA((crecimiento_dia-1), n=180),
+        EMA365 = EMA((crecimiento_dia-1), n=365),
+        cobert_ries_30 = rent_30/vol_30,
+        cobert_ries_90 = rent_90/vol_90,
+        cobert_ries_180 = rent_180/vol_180
+        ) %>% 
+    ungroup()
+#####################
+datos_base <- bind_rows(datos_hist,datos_mes) %>% 
+    group_by(fecha_corte, cod) %>% 
+    summarise(across(rendimientos_abonados:rm, ~ sum(.))) %>% 
+    ungroup() %>%
+    mutate(rendimientos_abonados = round(rendimientos_abonados, 1),
+           precierre_fondo_dia_t = round(precierre_fondo_dia_t, 1),
+           crecimiento_dia = precierre_fondo_dia_t/(precierre_fondo_dia_t-rendimientos_abonados),
+           crecimiento_dia = if_else(is.infinite(crecimiento_dia)|is.nan(crecimiento_dia), 
+                                     1,
+                                     crecimiento_dia)) %>% 
+    group_by(cod) %>% 
+    arrange(cod,fecha_corte) %>% 
+    mutate(n = n()) %>% 
+    filter(n>=365) %>% 
+    mutate(
+        rent_30 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 30,
+            .f      = ~ (prod(.)^(365/30))-1,
+            .align  = "rigth"),
+        rent_90 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 90,
+            .f      = ~ (prod(.)^(365/90))-1,
+            .align  = "rigth"),
+        rent_180 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 180,
+            .f      = ~ (prod(.)^(365/180))-1,
+            .align  = "rigth"),
+        rent_365 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 365,
+            .f      = ~ (prod(.))-1,
+            .align  = "rigth"),
+        vol_30 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 30,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_90 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 90,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_180 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 180,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        vol_365 = slidify_vec(
+            .x      = crecimiento_dia,
+            .period = 365,
+            .f      = ~sd(.-1)*sqrt(365),
+            .align  = "rigth"),
+        EMA30 = EMA((crecimiento_dia-1), n=30),
+        EMA90 = EMA((crecimiento_dia-1), n=90),
+        EMA180 = EMA((crecimiento_dia-1), n=180),
+        EMA365 = EMA((crecimiento_dia-1), n=365),
+        cobert_ries_30 = rent_30/vol_30,
+        cobert_ries_90 = rent_90/vol_90,
+        cobert_ries_180 = rent_180/vol_180,
+        cobert_ries_365 = rent_365/vol_365,
+        rm = round(rm, 1),
+        valor_fondo_cierre_dia_t = round(valor_fondo_cierre_dia_t, 1),
+        crecimiento_rm = valor_fondo_cierre_dia_t/(valor_fondo_cierre_dia_t-rm),
+        crecimiento_rm = if_else(is.infinite(crecimiento_rm)|is.nan(crecimiento_rm), 
+                                  1,
+                                 crecimiento_rm),
+        cre_rm_30 = slidify_vec(
+            .x      = rm,
+            .period = 30,
+            .f      = ~ (sum(.)),
+            .align  = "rigth"),
+        cre_rm_30 = cre_rm_30/lag(valor_fondo_cierre_dia_t,30)
+    ) %>% 
+    ungroup()
+
+datos_base %>% filter(cod %in% c("5_7_1_51953", "5_16_1_10936","5_16_1_18462")) %>% 
+    group_by(cod) %>% 
+    summarise_by_time(fecha_corte, .by = "month", value = last(cre_rm_30)) %>% 
+    ungroup() %>% 
+    plot_time_series(fecha_corte, value, .color_var = cod, .smooth = FALSE)   
 
