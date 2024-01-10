@@ -5,6 +5,7 @@ library(lubridate)
 library(jsonlite)
 library(timetk)
 library(TTR)
+library(readxl)
 
 source("scripts/facts_dims.R")
 
@@ -233,9 +234,15 @@ datos_base <- bind_rows(datos_hist,datos_mes) %>%
     ) %>% 
     ungroup()
 
-datos_base %>% filter(cod %in% c("5_7_1_51953", "5_16_1_10936","5_16_1_18462")) %>% 
-    group_by(cod) %>% 
-    summarise_by_time(fecha_corte, .by = "month", value = last(cre_rm_30)) %>% 
-    ungroup() %>% 
-    plot_time_series(fecha_corte, value, .color_var = cod, .smooth = FALSE)   
+segmentos_base <- read_xlsx("Auxiliares/segmentos_base.xlsx") %>% 
+    filter(Columna1 == "PLAZO RENTA FIJA") %>% 
+    pull(cod)
 
+datos_base %>% filter(cod %in% segmentos_base) %>%  
+    drop_na() %>% 
+    plot_time_series(fecha_corte, rent_365, .color_var = cod, .smooth = FALSE)   
+
+
+datos_base_parti_basica_2 %>% filter(cod %in% segmentos_base) %>%  
+    drop_na() %>% 
+    plot_time_series(fecha_corte, rent_365, .color_var = cod, .smooth = FALSE)   
