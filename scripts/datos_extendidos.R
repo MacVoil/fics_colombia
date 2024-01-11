@@ -235,8 +235,10 @@ datos_base <- bind_rows(datos_hist,datos_mes) %>%
     ungroup()
 
 segmentos_base <- read_xlsx("Auxiliares/segmentos_base.xlsx") %>% 
-    filter(Columna1 == "PLAZO RENTA FIJA") %>% 
+    filter(Columna1 %in% c("MONEY MARKET","1525")) %>% 
     pull(cod)
+
+dims <- get_dim_fics()
 
 datos_base %>% filter(cod %in% segmentos_base) %>%  
     drop_na() %>% 
@@ -244,5 +246,15 @@ datos_base %>% filter(cod %in% segmentos_base) %>%
 
 
 datos_base_parti_basica_2 %>% filter(cod %in% segmentos_base) %>%  
+    mutate(EMA15 = EMA((crecimiento_dia-1), n=15)) %>% 
     drop_na() %>% 
-    plot_time_series(fecha_corte, rent_365, .color_var = cod, .smooth = FALSE)   
+    arrange(cod, fecha_corte) %>% 
+    group_by(cod) %>% 
+    mutate(l_ema = last(EMA30)) %>% 
+    ungroup() %>% 
+    mutate(rank = dense_rank(desc(l_ema))) %>% 
+    filter(rank <=5) %>% 
+    left_join(dims) %>% 
+    plot_time_series(fecha_corte, rent_365, .color_var = nombre_patrimonio, .smooth = FALSE)   
+
+
