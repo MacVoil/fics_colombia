@@ -79,6 +79,6 @@ datos2 %>% filter(cod %in% datos_fil) %>%
     mutate(rank = dense_rank(desc(l_ema))) %>%
     #filter(rank <=5) %>%
     left_join(dims) %>% 
-    plot_time_series(fecha_corte, rent_30, .color_var = nombre_patrimonio, .smooth = FALSE)   
+    plot_time_series(fecha_corte, EMA30, .color_var = nombre_patrimonio, .smooth = FALSE)   
 
 
