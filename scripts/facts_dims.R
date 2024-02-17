@@ -87,7 +87,8 @@ get_fics_extended <- function(
     from <- ymd(from)
     to <- ymd(to)
     
-    datos_fics <- get_fics() %>% 
+    datos_fics <- get_fics(from = from, 
+                           to = to) %>% 
         group_by(cod,
                  tipo_participacion) %>% 
         pad_by_time(fecha_corte,
