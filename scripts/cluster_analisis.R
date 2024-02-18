@@ -8,6 +8,9 @@ library(TTR)
 library(readxl)
 library(dtwclust)
 library(furrr)
+library(ggbiplot)
+library(umap)
+library(plotly)
 
 source("scripts/facts_dims.R")
 
@@ -42,6 +45,8 @@ datos_dtw <- datos %>%
 datos_dtw_std <- datos_dtw %>% 
     mutate(across(c(rent_30:mov_per_30), ~ standardize_vec(., silent = TRUE)))
 
+
+# DTW ----
 datos_dtw_std_list <- datos_dtw_std %>%
     select(-fecha_corte) %>%
     group_by(cod) %>%
@@ -80,4 +85,47 @@ datos_cluster <- datos_dtw %>%
     left_join(clusters)
 
 datos_cluster %>% filter(cluster == 3) %>%  
-    plot_time_series(fecha_corte, rent_30, .color_var = cod, .smooth = FALSE)   
+    plot_time_series(fecha_corte, rent_30, .color_var = cod, .smooth = FALSE) 
+
+# Tradicional ----
+
+datos_anchos <- datos_dtw_std %>% 
+    pivot_wider(names_from = fecha_corte, values_from = c(rent_30:mov_per_30))
+
+datos_pca <- prcomp(datos_anchos[,-1])
+
+as.data.frame(round(summary(datos_pca)[[6]],3))
+
+pca_matrix <- datos_pca$x[,1:5]
+
+row.names(pca_matrix) <- datos_anchos$cod
+
+as.data.frame(round(pca_matrix,2))
+
+umap_data <- umap(pca_matrix, n_components = 3, random_state = 4981)
+
+umap_data$layout %>% head()
+
+umap_data_tibble <- as_tibble(umap_data$layout) %>% 
+    bind_cols(datos_anchos %>% select(cod))
+
+
+plot_ly(umap_data_tibble, 
+        x = ~V1, 
+        y = ~V2, 
+        z = ~V3,
+        type = 'scatter3d', 
+        mode = 'markers',
+        text = ~cod) 
+
+umap_data_tibble_dtw <- umap_data_tibble %>% 
+    left_join(clusters) %>% 
+    mutate(cluster = as_factor(cluster))
+
+plot_ly(umap_data_tibble_dtw, 
+        x = ~V1, 
+        y = ~V2, z = ~V3,
+        type = 'scatter3d', 
+        mode = 'markers',
+        text = ~cod,
+        color = ~cluster) 
