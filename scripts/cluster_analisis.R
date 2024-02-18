@@ -49,7 +49,7 @@ datos_dtw_std_list <- datos_dtw_std %>%
     set_names(unique(datos_dtw_std$cod))
 
 get_civ <- function(k){
-    c(k_i = k, tsclust(datos_dtw_std_list, k = k, distance = "dtw", seed = 4981) %>% 
+    c(k_i = k, tsclust(datos_dtw_std_list, k = k, distance = "dtw2", seed = 4981) %>% 
         cvi())
 }
 
@@ -67,7 +67,8 @@ ggplot(metricas_clust, aes(x = k_i, y = SF)) +
     geom_point(shape = 19)
 
 
-mvc <- tsclust(datos_dtw_std_list, k = 5L, distance = "dtw", seed = 4981)
+mvc <- tsclust(datos_dtw_std_list, k = 9L, 
+               distance = "sdtw", seed = 4981)
 
 
 plot(mvc)
@@ -78,5 +79,5 @@ mvc@cluster %>% table()
 datos_cluster <- datos_dtw %>% 
     left_join(clusters)
 
-datos_cluster %>% filter(cluster == 1) %>%  
+datos_cluster %>% filter(cluster == 3) %>%  
     plot_time_series(fecha_corte, rent_30, .color_var = cod, .smooth = FALSE)   
