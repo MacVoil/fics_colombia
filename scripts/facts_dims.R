@@ -32,6 +32,42 @@ get_dim_fics <- function(
     # Transformanos str a date
     from <- ymd(from)
     to <- ymd(to)
+    
+    eliminar_no_permitidas <- function(x) {
+        palabras <- str_split(x, " ")[[1]]
+        palabras_permitidas <- palabras[palabras %in% palabras_permitidas]
+        str_c(palabras_permitidas, collapse = " ")
+    }
+    
+    palabras_permitidas <- c("ACCION",
+                             "ACCIONES", "Y", "VALORES",
+                             "ALIANZA",
+                             "BBVA",
+                             "BTG", "PACTUAL",
+                             "CITIVALORES",
+                             "DAVIVIENDA",
+                             "CREDICORP",
+                             "BANCOLOMBIA",
+                             "FIDUCENTRAL",
+                             "COLMENA",
+                             "CORFICOLOMBIANA",
+                             "FIDUOCCIDENTE",
+                             "FIDUPREVISORA",
+                             "POPULAR",
+                             "SURA",
+                             "GLOBAL", "SECURITIES",
+                             "LARRAIN", "VIAL",
+                             "PROGRESION",
+                             "RENTA4G",
+                             "SCOTIABANK",
+                             "SUDAMERIS",
+                             "SKANDIA",
+                             "AGROPECUARIO",
+                             "COOMEVA",
+                             "ITAU",
+                             "FIDUCOLDEX",
+                             "BOGOTA")
+
 
 
 dim_entidad <- str_glue("https://www.datos.gov.co/resource/qhpu-8ixx.json?$query=SELECT distinct tipo_entidad, nombre_tipo_entidad, codigo_entidad, nombre_entidad LIMIT 100000000") %>% 
@@ -76,7 +112,20 @@ dim_fics %>%
           tipo_entidad,
           codigo_entidad,
           subtipo_negocio,
-          codigo_negocio)
+          codigo_negocio) %>% 
+    filter(nombre_subtipo_patrimonio != "FONDOS DE CAPITAL PRIVADO") %>% 
+    select(cod,nombre_entidad, nombre_patrimonio) %>% 
+    distinct() %>% 
+    mutate(nombre_entidad = str_remove_all(nombre_entidad,
+                                           c("\\bACCI.*?N\\b" = "ACCION",
+                                             "\\bBOGOT.* " = "BOGOTA ",
+                                             "\\bITA.* " = "ITAU ")),
+           nombre_entidad = sapply(nombre_entidad, eliminar_no_permitidas),
+           nombre_patrimonio = str_replace_all(
+               nombre_patrimonio,
+               "CARTERA COLECTIVA|CARTERA CON COMPARTIMENTOS|F.I.C.|CON PARTICIPACIONES DIFERENCIALES|FIC|FONDO DE INVERSI.*?N COLECTIVA|FONDO",
+               "") %>% str_trim()
+    )
 }
 
 get_fics_extended <- function(

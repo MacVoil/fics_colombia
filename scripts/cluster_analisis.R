@@ -23,14 +23,17 @@ datos <- get_fics_extended()
 dims <- get_dim_fics()
 
 datos_dtw <- datos %>% 
-    group_by(cod) %>% 
-    mutate(n = n()) %>% 
-    ungroup() %>% 
-    filter(n == max(n)) %>% 
-    select(fecha_corte, 
-           cod,
-           crecimiento_dia) %>%
-    drop_na()
+  group_by(cod) %>% 
+  mutate(n = n()) %>% 
+  mutate(any_mov = rm != 0,
+         mov_per = sum(any_mov)/n) %>% 
+  filter(mov_per >= 0.4) %>% 
+  ungroup() %>%
+  filter(n == max(n)) %>% 
+      select(fecha_corte, 
+             cod,
+             crecimiento_dia) %>%
+  drop_na()
 
 
 datos_dtw_std <- datos_dtw %>% 
@@ -42,24 +45,24 @@ datos_dtw_std_list <- datos_dtw_std %>%
     pivot_wider(names_from = fecha_corte, values_from = crecimiento_dia)
 
 
-# get_civ <- function(k){
-#     c(k_i = k, tsclust(datos_dtw_std_list[,-1], k = k, distance = "sdtw", seed = 4981) %>%
-#         cvi())
-# }
-# 
-# tictoc::tic()
-# 
-# metricas_clust <- future_map_dfr(3:12, ~  get_civ(.x))
-# 
-# tictoc::toc()
-# 
-# 
-# ggplot(metricas_clust, aes(x = k_i, y = DBstar)) +
-#     geom_line() +
-#     geom_point(shape = 19)
+get_civ <- function(k){
+    c(k_i = k, tsclust(datos_dtw_std_list[,-1], k = k, distance = "sdtw", seed = 4981) %>%
+        cvi())
+}
+
+tictoc::tic()
+
+metricas_clust <- future_map_dfr(3:12, ~  get_civ(.x))
+
+tictoc::toc()
 
 
-mvc <- tsclust(datos_dtw_std_list[,-1], k = 8L, 
+ggplot(metricas_clust, aes(x = k_i, y = DBstar)) +
+    geom_line() +
+    geom_point(shape = 19)
+
+
+mvc <- tsclust(datos_dtw_std_list[,-1], k = 6L, 
                distance = "sdtw", seed = 4981)
 
 
@@ -167,7 +170,7 @@ ggplot(pam_sil, aes(x = k_i, y = sil)) +
     geom_line() +
     geom_point(shape = 19)
 
-datos_pam <- cluster::pam(matrix_datos_anchos,7)
+datos_pam <- cluster::pam(matrix_datos_anchos,5)
 datos_pam$clustering %>% table()
 table_datos_pam <- tibble(cod = datos_pam$clustering %>% names(), cluster = datos_pam$clustering)
 
@@ -198,7 +201,7 @@ plot_ly(umap_data_tibble_pam,
         opacity = 0.75)
 
 #########
-umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = 7, random_state = 4981)
+umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = 5, random_state = 4981)
 umap_data_clust$layout %>% head()
 
 matrix_umap <- umap_data_clust$layout
@@ -206,7 +209,7 @@ rownames(matrix_umap) <-  datos_dtw_std_list$cod
 ##########
 
 
-datos_pam <- cluster::pam(matrix_umap,7)
+datos_pam <- cluster::pam(matrix_umap,5)
 datos_pam$clustering %>% table()
 table_datos_pam <- tibble(cod = datos_pam$clustering %>% names(), cluster = datos_pam$clustering)
 
@@ -279,13 +282,13 @@ get_sil <- function(i){
   
 }
 
-get_sil(2550)
+get_sil(dim(comb_2)[1])
 
 
 tictoc::tic()
 plan(multisession, workers = availableCores())
 
-alg_table <- future_map_dfr(1:2550, ~  get_sil(.x))
+alg_table <- future_map_dfr(1:dim(comb_2)[1], ~  get_sil(.x))
 
 plan(sequential)
 tictoc::toc()
@@ -296,7 +299,7 @@ best_calinski_harabasz <- alg_table %>%
   distinct(calinski_harabasz, .keep_all = TRUE) %>% 
   pull(n)
 
-comb_2[best_calinski_harabasz,]$Var1
+comb_2[best_calinski_harabasz,]$Var2
 
 # alg_table_ranks <- alg_table %>%
 #   select(n,
@@ -380,8 +383,26 @@ datos_cluster_dice <- datos %>%
 
 datos_cluster_dice %>% 
   group_by(CSPA) %>% 
-  plot_time_series(fecha_corte, rent_365, .color_var = nombre_patrimonio, .smooth = FALSE, .facet_ncol = 1, .trelliscope = TRUE, 
+  plot_time_series(fecha_corte, rent_30, .color_var = nombre_patrimonio, .smooth = FALSE, .facet_ncol = 1, .trelliscope = TRUE, 
                    .trelliscope_params = list(width = 1000)) 
+
+representacion_clustes <- datos_cluster_dice %>% 
+  group_by(CSPA, fecha_corte) %>% 
+  summarise(q1 = quantile(rent_30, 0.25),
+         q2 = quantile(rent_30, 0.5),
+         q3 = quantile(rent_30, 0.75),
+         ) %>% 
+  ungroup()
+
+representacion_clustes %>% 
+  plot_time_series(fecha_corte, q2, .color_var = CSPA, .smooth = FALSE) 
+
+p <- representacion_clustes %>% 
+  ggplot(aes(x =fecha_corte, y = q2, col = factor(CSPA), group =  factor(CSPA), fill= factor(CSPA))) +
+  geom_line() +
+  geom_ribbon(aes(ymin=q1, ymax=q3), alpha = 0.5)
+
+ggplotly(p, dynamicTicks = TRUE)
 
 ######
 
