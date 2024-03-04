@@ -62,7 +62,7 @@ ggplot(metricas_clust, aes(x = k_i, y = DBstar)) +
     geom_point(shape = 19)
 
 
-mvc <- tsclust(datos_dtw_std_list[,-1], k = 6L, 
+mvc <- tsclust(datos_dtw_std_list[,-1], k = 8L, 
                distance = "sdtw", seed = 4981)
 
 
@@ -170,7 +170,7 @@ ggplot(pam_sil, aes(x = k_i, y = sil)) +
     geom_line() +
     geom_point(shape = 19)
 
-datos_pam <- cluster::pam(matrix_datos_anchos,5)
+datos_pam <- cluster::pam(matrix_datos_anchos,6)
 datos_pam$clustering %>% table()
 table_datos_pam <- tibble(cod = datos_pam$clustering %>% names(), cluster = datos_pam$clustering)
 
@@ -201,7 +201,7 @@ plot_ly(umap_data_tibble_pam,
         opacity = 0.75)
 
 #########
-umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = 5, random_state = 4981)
+umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = 6, random_state = 4981)
 umap_data_clust$layout %>% head()
 
 matrix_umap <- umap_data_clust$layout
@@ -209,7 +209,7 @@ rownames(matrix_umap) <-  datos_dtw_std_list$cod
 ##########
 
 
-datos_pam <- cluster::pam(matrix_umap,5)
+datos_pam <- cluster::pam(matrix_umap,6)
 datos_pam$clustering %>% table()
 table_datos_pam <- tibble(cod = datos_pam$clustering %>% names(), cluster = datos_pam$clustering)
 
@@ -255,7 +255,7 @@ todas_combinaciones <- unlist(lapply(1:length(elementos), function(x) {
 print(todas_combinaciones)
 
 
-comb_2 <- expand.grid(1:255, 3:12)
+comb_2 <- expand.grid(36:255, 3:9)
 
 get_sil <- function(i){
   comb <- comb_2[i,1]
@@ -299,7 +299,7 @@ best_calinski_harabasz <- alg_table %>%
   distinct(calinski_harabasz, .keep_all = TRUE) %>% 
   pull(n)
 
-comb_2[best_calinski_harabasz,]$Var2
+
 
 # alg_table_ranks <- alg_table %>%
 #   select(n,
