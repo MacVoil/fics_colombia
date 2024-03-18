@@ -255,18 +255,17 @@ todas_combinaciones <- unlist(lapply(1:length(elementos), function(x) {
 print(todas_combinaciones)
 
 
-comb_2 <- expand.grid(36:255, 5)
+comb_2 <- expand.grid(1:255, 5:9)
+
+umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = 2, random_state = 4981)
+matrix_umap <- umap_data_clust$layout
+rownames(matrix_umap) <-  datos_dtw_std_list$cod
 
 get_sil <- function(i){
   comb <- comb_2[i,1]
   k <- comb_2[i,2]
   
-  umap_data_clust <- umap(datos_dtw_std_list[,-1], n_components = k, random_state = 4981)
-  matrix_umap <- umap_data_clust$layout
-  rownames(matrix_umap) <-  datos_dtw_std_list$cod
-  
-  
-  tibble(n=i) %>% bind_cols(calinski_harabasz = dice(matrix_umap,
+  tibble(n=i) %>% bind_cols(silhouette = dice(matrix_umap,
                                  nk = k,
                                  algorithms = todas_combinaciones[[comb]],
                                  hc.method = "ward.D2",
@@ -278,7 +277,7 @@ get_sil <- function(i){
                                  prep.data = "none",
                                  reps = 100,
                                  seed = 4981,
-                                 seed.data = 4981)$indices$ii[[1]]["CSPA",-1]$calinski_harabasz)
+                                 seed.data = 4981)$indices$ii[[1]]["CSPA",-1]$silhouette)
   
 }
 
@@ -293,10 +292,10 @@ alg_table <- future_map_dfr(1:dim(comb_2)[1], ~  get_sil(.x))
 plan(sequential)
 tictoc::toc()
 
-best_calinski_harabasz <- alg_table %>% 
-  filter(calinski_harabasz == max(calinski_harabasz)) %>% 
-  arrange(n) %>% 
-  distinct(calinski_harabasz, .keep_all = TRUE) %>% 
+silhouette <- alg_table %>% 
+  filter(silhouette == max(silhouette)) %>% 
+  arrange(desc(n)) %>% 
+  distinct(silhouette, .keep_all = TRUE) %>% 
   pull(n)
 
 
@@ -336,11 +335,6 @@ best_calinski_harabasz <- alg_table %>%
 #                 prep.data = "none",
 #                 reps = 20)
 
-umap_data_clust <- umap(datos_dtw_std_list[,-1], 
-                        n_components = comb_2[best_calinski_harabasz,]$Var2, 
-                        random_state = 4981)
-matrix_umap <- umap_data_clust$layout
-rownames(matrix_umap) <-  datos_dtw_std_list$cod
 
 datos_dice <- dice(matrix_umap,
                    nk = comb_2[best_calinski_harabasz,]$Var2,
