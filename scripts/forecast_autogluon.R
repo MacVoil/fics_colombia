@@ -113,7 +113,7 @@ datos_completos <- datos_forecast_limpieza_base_activos_major_n_inv %>%
     #transformer_function() %>% 
     group_by(cod) %>%
     #filter(!is.na(ma7)) %>%
-    future_frame(fecha_corte, .length_out = 30, .bind_data = TRUE) %>%
+    future_frame(fecha_corte, .length_out = 35, .bind_data = TRUE) %>%
     ungroup() %>%
     left_join(ibr, by = c("fecha_corte" = "fecha")) %>%
     left_join(trm, by = c("fecha_corte" = "fecha")) %>%
@@ -125,16 +125,22 @@ datos_completos <- datos_forecast_limpieza_base_activos_major_n_inv %>%
     select(cod, fecha_corte, creci_dia, ipc_lag, ibr, trm_lag) 
     
 datos_forecast <- datos_completos %>% 
-    filter(is.na(creci_dia))
+    filter(is.na(creci_dia)) %>%
+    arrange(cod,fecha_corte) %>%
+    select(cod,fecha_corte,creci_dia,ipc_lag,ibr,trm_lag) %>% 
+    ungroup()
 
 datos_modelar <- datos_completos %>% 
-    filter(!is.na(creci_dia))
+    filter(!is.na(creci_dia)) %>%
+    arrange(cod,fecha_corte) %>%
+    select(cod,fecha_corte,creci_dia,ipc_lag,ibr,trm_lag) %>% 
+    ungroup()
 
 
 library(reticulate)
 use_condaenv(condaenv = "C:\\Users\\user\\miniconda3\\envs\\ag\\python.exe")
 
-datos_splits <- time_series_split(datos_modelar, assess = 30, cumulative = TRUE)
+datos_splits <- time_series_split(datos_modelar, assess = 35, cumulative = TRUE)
 
 datos_splits %>%
     tk_time_series_cv_plan() %>%
@@ -150,6 +156,8 @@ datos_test <- testing(datos_splits) %>%
     select(cod,fecha_corte,creci_dia,ipc_lag,ibr,trm_lag) %>% 
     ungroup()
 
+
+####
 datos_pred <- py$predictions_full %>% 
     rename(cod = item_id, fecha_corte = timestamp, creci_dia = mean) %>% 
     mutate(fecha_corte = ymd(as.Date(fecha_corte))) %>% 
@@ -180,3 +188,6 @@ data_rmse <- datos_modelar %>%
                by = join_by(cod, fecha_corte))
 
 rmse(data_rmse, truth = actual, estimate = pred)
+
+
+
