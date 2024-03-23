@@ -6,7 +6,7 @@ library(jsonlite)
 library(timetk)
 library(plotly)
 library(tidymodels)
-library(modeltime.h2o)
+library(openxlsx)
 
 source("scripts/facts_dims.R")
 
@@ -29,28 +29,69 @@ datos_forecast_limpieza <-  datos_forecast %>%
                                            precierre_fondo_dia_t)) %>%
     ungroup() 
 
-max_date <- max(datos_forecast_limpieza$fecha_corte)
+# max_date <- max(datos_forecast_limpieza$fecha_corte)
+# 
+# max_date_minus_4_weeks <- max_date - weeks(4)
+# 
+# datos_hist <- datos_forecast_limpieza %>% 
+#     filter(fecha_corte < max_date_minus_4_weeks)
+# 
+# datos_mes <- datos_forecast_limpieza %>% 
+#     filter(fecha_corte >= max_date_minus_4_weeks) %>% 
+#     group_by(cod,
+#              tipo_participacion) %>% 
+#     pad_by_time(fecha_corte,
+#                 "day", 
+#                 .end_date = max_date) %>% 
+#     fill(valor_fondo_cierre_dia_t) %>%
+#     fill(numero_inversionistas) %>%
+#     mutate(rendimientos_abonados = replace_na(rendimientos_abonados,0),
+#            precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
+#                                            valor_fondo_cierre_dia_t,
+#                                            precierre_fondo_dia_t))
+# 
+# datos_forecast_limpieza_base <- bind_rows(datos_hist,datos_mes)
 
-max_date_minus_4_weeks <- max_date - weeks(4)
-
-datos_hist <- datos_forecast_limpieza %>% 
-    filter(fecha_corte < max_date_minus_4_weeks)
-
-datos_mes <- datos_forecast_limpieza %>% 
-    filter(fecha_corte >= max_date_minus_4_weeks) %>% 
-    group_by(cod,
-             tipo_participacion) %>% 
-    pad_by_time(fecha_corte,
-                "day", 
-                .end_date = max_date) %>% 
-    fill(valor_fondo_cierre_dia_t) %>%
-    fill(numero_inversionistas) %>%
-    mutate(rendimientos_abonados = replace_na(rendimientos_abonados,0),
-           precierre_fondo_dia_t = if_else(is.na(precierre_fondo_dia_t),
-                                           valor_fondo_cierre_dia_t,
-                                           precierre_fondo_dia_t))
-
-datos_forecast_limpieza_base <- bind_rows(datos_hist,datos_mes)
+datos_xlsx <- read.xlsx("Auxiliares/reporteRentabilidades.xlsx", detectDates = TRUE) %>% 
+    as_tibble() %>% 
+    select(Fecha.corte, 
+           Tipo.Entidad,
+           Cód..Entidad, 
+           Cód..Negocio, 
+           Subtipo.Negocio,
+           Cons..id.Part.,
+           Valor.fondo.al.cierre.del.día.t, 
+           Núm..Invers., 
+           Rentab..dia,
+           `Tipo.Part..<sup>1<sup/>`) %>% 
+    filter(Subtipo.Negocio != "FONDOS DE CAPITAL PRIVADO") %>% 
+    mutate(Fecha.corte = dmy(Fecha.corte),
+           Núm..Invers. = as.numeric(Núm..Invers.),
+           Rentab..dia = ((1+(as.numeric(Rentab..dia)/100))^(1/365)),
+           Valor.fondo.al.cierre.del.día.t = as.numeric(str_replace_all(Valor.fondo.al.cierre.del.día.t, "[^0-9\\.]", "")),
+           Subtipo.Negocio = case_when(
+               Subtipo.Negocio == "FIC BURSATILES" ~ 1,
+               Subtipo.Negocio == "FIC DE MERCADO MONETARIO" ~ 2,
+               Subtipo.Negocio == "FIC INMOBILIARIAS" ~ 3,
+               Subtipo.Negocio == "FIC DE TIPO GENERAL" ~ 1
+           ),
+           cod = str_c(Tipo.Entidad,Cód..Entidad,Subtipo.Negocio,Cód..Negocio, sep = "_"),
+           tipo_participacion = str_c(`Tipo.Part..<sup>1<sup/>`, Cons..id.Part.)) %>% 
+    select(Fecha.corte,Valor.fondo.al.cierre.del.día.t,Núm..Invers.,Rentab..dia,cod,tipo_participacion) %>% 
+    arrange(Fecha.corte) %>% 
+    group_by(cod, tipo_participacion) %>% 
+    mutate(precierre_fondo_dia_t = lag(Valor.fondo.al.cierre.del.día.t)* Rentab..dia,
+           rendimientos_abonados = precierre_fondo_dia_t-lag(Valor.fondo.al.cierre.del.día.t)) %>% 
+    slice(-1) %>% 
+    select(Fecha.corte, cod, tipo_participacion, rendimientos_abonados, precierre_fondo_dia_t, Valor.fondo.al.cierre.del.día.t, Núm..Invers.) %>% 
+    ungroup() %>% 
+    rename(fecha_corte = Fecha.corte, valor_fondo_cierre_dia_t = Valor.fondo.al.cierre.del.día.t, numero_inversionistas = Núm..Invers.) %>% 
+    semi_join(datos_forecast_limpieza %>% 
+                  filter(fecha_corte >= floor_date(today()%m-%months(1), "month")), 
+              by =join_by(cod, tipo_participacion)) %>% 
+    anti_join(datos_forecast_limpieza, by =join_by(fecha_corte, cod, tipo_participacion))
+  
+datos_forecast_limpieza_base <- bind_rows(datos_forecast_limpieza,datos_xlsx)
 
 datos_forecast_limpieza_base_activos <- datos_forecast_limpieza_base %>% 
     group_by(cod, tipo_participacion) %>%
@@ -93,6 +134,11 @@ datos_forecast_limpieza_base_activos_major_n_inv <- datos_forecast_limpieza_base
     ungroup() %>% 
     select(fecha_corte, cod, crecimiento_dia) %>% 
     filter(cod %in% clust2)
+
+datos_forecast_limpieza_base_activos_major_n_inv %>% 
+    group_by(cod) %>% 
+    plot_time_series(fecha_corte, crecimiento_dia, .trelliscope = TRUE, 
+                     .trelliscope_params = list(width = 1000), .smooth = FALSE)
 
 ibr <- openxlsx::read.xlsx("Auxiliares/ibr.xlsx", detectDates = TRUE) %>% 
     mutate(ibr = standardize_vec(ibr))
@@ -176,7 +222,7 @@ datos_modeltime <- datos_plot %>%
 
 datos_modeltime %>% 
     group_by(cod) %>% 
-    filter(.index >= today()-months(3)) %>% 
+    filter(.index >= today()-months(6)) %>% 
     plot_modeltime_forecast(.trelliscope = TRUE, 
                         .trelliscope_params = list(width = 1000))
 

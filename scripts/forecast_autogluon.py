@@ -91,7 +91,7 @@ train_data.tail()
 train_data.isnull().any()
 
 predictor = TimeSeriesPredictor(
-    prediction_length=28,
+    prediction_length=35,
     path="modelos/autogluon_m4_full",
     target="creci_dia",
     eval_metric="RMSE",
@@ -111,9 +111,9 @@ predictor.fit(
 
 predictor.leaderboard()
 
-r.datos_test.head()
-r.datos_test.isnull().values.any()
-test_data = r.datos_test.drop("creci_dia", axis=1)
+r.datos_forecast.head()
+r.datos_forecast.isnull().values.any()
+test_data = r.datos_forecast.drop("creci_dia", axis=1)
 test_data.head()
 
 datos_test = TimeSeriesDataFrame.from_data_frame(
@@ -122,7 +122,7 @@ datos_test = TimeSeriesDataFrame.from_data_frame(
     timestamp_column="fecha_corte")
 
 datos_comp = TimeSeriesDataFrame.from_data_frame(
-    r.datos_test,
+    r.datos_forecast,
     id_column="cod",
     timestamp_column="fecha_corte")
 
