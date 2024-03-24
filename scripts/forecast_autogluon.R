@@ -8,6 +8,9 @@ library(plotly)
 library(tidymodels)
 library(openxlsx)
 
+library(reticulate)
+use_condaenv(condaenv = "C:\\Users\\user\\miniconda3\\envs\\ag\\python.exe")
+
 source("scripts/facts_dims.R")
 
 datos_forecast <- get_fics(
@@ -99,7 +102,7 @@ datos_forecast_limpieza_base_activos <- datos_forecast_limpieza_base %>%
            n = n()) %>% 
     ungroup() %>% 
     filter(max_fecha == max(fecha_corte)) %>% 
-    filter(n > 365)
+    filter(n > 365*2)
 
 fondos_base <- datos_forecast_limpieza_base_activos %>% 
     filter(fecha_corte == max(fecha_corte)) %>% 
@@ -138,28 +141,67 @@ datos_forecast_limpieza_base_activos_major_n_inv <- datos_forecast_limpieza_base
 datos_forecast_limpieza_base_activos_major_n_inv %>% 
     group_by(cod) %>% 
     plot_time_series(fecha_corte, crecimiento_dia, .trelliscope = TRUE, 
-                     .trelliscope_params = list(width = 1000), .smooth = FALSE)
+                     .trelliscope_params = list(width = 1000), .smooth = FALSE,
+                     .facet_ncol = 3, .facet_nrow = 3)
 
+
+
+datos_forecast_limpieza_base_activos_major_n_inv_mean <- datos_forecast_limpieza_base_activos_major_n_inv %>% 
+  group_by(fecha_corte) %>% 
+  summarise(mean_creci = quantile(crecimiento_dia, 0.5)
+  ) %>% 
+  ungroup()
+
+
+datos_forecast_limpieza_base_activos_major_n_inv_mean %>% 
+  filter(fecha_corte <= "2020-03-01" | fecha_corte >= "2020-04-01") %>% 
+  plot_stl_diagnostics(.date_var = fecha_corte, .value = mean_creci, .feature_set = c("observed", "season", "trend", "remainder"), .interactive = F)
+
+#######################
 ibr <- openxlsx::read.xlsx("Auxiliares/ibr.xlsx", detectDates = TRUE) %>% 
-    mutate(ibr = standardize_vec(ibr))
+  mutate(ibr = standardize_vec(ibr))
 
 trm <- openxlsx::read.xlsx("Auxiliares/trm.xlsx", detectDates = TRUE) %>% 
-    mutate(trm = standardize_vec(trm))
+  mutate(trm = standardize_vec(trm))
 
 ipc <- openxlsx::read.xlsx("Auxiliares/ipc.xlsx", detectDates = FALSE) %>% 
-    select(fecha, ipc) %>% 
-    mutate(fecha = ymd(fecha, truncated = TRUE)) %>% 
-    pad_by_time(fecha,
-                "day", .fill_na_direction = "down", .end_date = ceiling_date(max(.$fecha), unit = "month")) %>% 
-    mutate(ipc = standardize_vec(ipc)) 
-    
+  select(fecha, ipc) %>% 
+  mutate(fecha = ymd(fecha, truncated = TRUE)) %>% 
+  pad_by_time(fecha,
+              "day", .fill_na_direction = "down", .end_date = ceiling_date(max(.$fecha), unit = "month")) %>% 
+  mutate(ipc = standardize_vec(ipc)) 
 
+creci_trend <- datos_forecast_limpieza_base_activos_major_n_inv_mean %>% 
+  tk_stl_diagnostics(.date_var = fecha_corte, .value = mean_creci) %>% 
+  select(fecha_corte, trend) %>% 
+  rename(creci_trend = trend) %>% 
+  left_join(ibr, by = c("fecha_corte" = "fecha")) %>% 
+  left_join(trm, by = c("fecha_corte" = "fecha")) %>% 
+  left_join(ipc, by = c("fecha_corte" = "fecha")) 
+
+creci_trend %>% 
+  pivot_longer(-fecha_corte) %>% 
+  group_by(name) %>% 
+  plot_time_series(.date_var = fecha_corte, .value = value, .smooth = FALSE)
+
+datos_forecast_limpieza_base_activos_major_n_inv_mean_regresors <- datos_forecast_limpieza_base_activos_major_n_inv_mean %>% 
+  left_join(ibr, by = c("fecha_corte" = "fecha")) %>% 
+  left_join(trm, by = c("fecha_corte" = "fecha")) %>% 
+  left_join(ipc, by = c("fecha_corte" = "fecha")) 
+
+datos_forecast_limpieza_base_activos_major_n_inv_mean_regresors %>% 
+  filter(fecha_corte <= "2020-03-01" | fecha_corte >= "2020-04-01") %>% 
+  drop_na() %>% 
+  plot_acf_diagnostics(.date_var = fecha_corte, .value = mean_creci, .ccf_vars = c(ipc, trm, ibr), .show_ccf_vars_only = TRUE, .lags = 0:365, .facet_ncol = 3)
+
+
+#######################
 datos_completos <- datos_forecast_limpieza_base_activos_major_n_inv %>%
     rename(creci_dia = crecimiento_dia) %>%
     #transformer_function() %>% 
     group_by(cod) %>%
     #filter(!is.na(ma7)) %>%
-    future_frame(fecha_corte, .length_out = 35, .bind_data = TRUE) %>%
+    future_frame(fecha_corte, .length_out = 28, .bind_data = TRUE) %>%
     ungroup() %>%
     left_join(ibr, by = c("fecha_corte" = "fecha")) %>%
     left_join(trm, by = c("fecha_corte" = "fecha")) %>%
@@ -182,11 +224,7 @@ datos_modelar <- datos_completos %>%
     select(cod,fecha_corte,creci_dia,ipc_lag,ibr,trm_lag) %>% 
     ungroup()
 
-
-library(reticulate)
-use_condaenv(condaenv = "C:\\Users\\user\\miniconda3\\envs\\ag\\python.exe")
-
-datos_splits <- time_series_split(datos_modelar, assess = 35, cumulative = TRUE)
+datos_splits <- time_series_split(datos_modelar, assess = 28, cumulative = TRUE)
 
 datos_splits %>%
     tk_time_series_cv_plan() %>%
@@ -202,6 +240,14 @@ datos_test <- testing(datos_splits) %>%
     select(cod,fecha_corte,creci_dia,ipc_lag,ibr,trm_lag) %>% 
     ungroup()
 
+time_series_cv(datos_forecast_limpieza_base_activos_major_n_inv_mean %>% 
+                 filter(fecha_corte >= today() - years(2)),
+               date_var    = fecha_corte,
+               assess      = "28 days",
+               skip        = "28 days",
+               cumulative = TRUE,
+               slice_limit = 13) %>%
+  plot_time_series_cv_plan(fecha_corte, mean_creci, .interactive = FALSE, .facet_ncol = 3, .facet_dir = "v")
 
 ####
 datos_pred <- py$predictions_full %>% 
